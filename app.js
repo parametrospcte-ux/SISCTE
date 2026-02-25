@@ -160,8 +160,8 @@ function seleccionar(f) {
     toast('Solo se aceptan archivos Excel (.xlsx o .xls)', 'err'); return;
   }
   // Firestore tiene límite de 1MB por documento, Excel pequeño = ok
-  if (f.size > 2 * 1024 * 1024) {
-    toast('El archivo no debe superar 2 MB', 'err'); return;
+  if (f.size > 10000 * 1024) {
+    toast('El archivo no debe superar 10.000 KB', 'err'); return;
   }
   archivoSeleccionado = f;
   $('fp-nombre').textContent = f.name;
