@@ -1,17 +1,16 @@
 /* ── FIREBASE CONFIG ── */
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyCwOn3AxANGK1PtIEsJsM28YJv9UEqDu5U",
-  authDomain:        "siscte-30f1b.firebaseapp.com",
-  projectId:         "siscte-30f1b",
-  storageBucket:     "siscte-30f1b.firebasestorage.app",
-  messagingSenderId: "270864419518",
-  appId:             "1:270864419518:web:93ed773c0bc1ad5b6b6cef"
+  apiKey:            "AIzaSyCJmtr3meCbjbIi4rJ__8k02UfARgYxR-g",
+  authDomain:        "siscte-186e8.firebaseapp.com",
+  projectId:         "siscte-186e8",
+  storageBucket:     "siscte-186e8.firebasestorage.app",
+  messagingSenderId: "204472191687",
+  appId:             "1:204472191687:web:c0a884d82eb7427d7a4ce2",
 };
 
 /* ── ADMINISTRADORES ── */
 const ADMIN_EMAILS = [
   "parametrosp.cte@gmail.com",
-  "iastudillol@unemi.edu.ec"
 ];
 
 /* ─── Estado global ─── */
