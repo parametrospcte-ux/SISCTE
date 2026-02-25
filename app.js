@@ -26,14 +26,18 @@ async function initFirebase() {
     = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
   const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
     = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+  const { getStorage, ref, uploadBytesResumable, getDownloadURL }
+    = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js");
 
   const app = initializeApp(FIREBASE_CONFIG);
-  db   = getFirestore(app);
-  auth = getAuth(app);
+  db      = getFirestore(app);
+  auth    = getAuth(app);
+  window._storage = getStorage(app);
 
   window._fb = {
     collection, addDoc, getDocs, orderBy, query,
-    GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+    GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+    ref, uploadBytesResumable, getDownloadURL
   };
 
   onAuthStateChanged(auth, u => {
@@ -156,8 +160,8 @@ function seleccionar(f) {
     toast('Solo se aceptan archivos Excel (.xlsx o .xls)', 'err'); return;
   }
   // Firestore tiene límite de 1MB por documento, Excel pequeño = ok
-  if (f.size > 900 * 1024) {
-    toast('El archivo no debe superar 900 KB para poder guardarse', 'err'); return;
+  if (f.size > 2 * 1024 * 1024) {
+    toast('El archivo no debe superar 2 MB', 'err'); return;
   }
   archivoSeleccionado = f;
   $('fp-nombre').textContent = f.name;
@@ -166,18 +170,10 @@ function seleccionar(f) {
   $('file-preview').style.display = 'flex';
 }
 
-/* ── Convierte archivo a base64 ── */
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+/* fileToBase64 eliminado — ahora se usa Firebase Storage directamente */
 
 /* ═══════════════════════════════════
-   ENVÍO A FIRESTORE (sin Storage)
+   ENVÍO A FIREBASE STORAGE + FIRESTORE
 ═══════════════════════════════════ */
 async function enviarArchivo() {
   if (!archivoSeleccionado) { toast('Selecciona un archivo primero', 'err'); return; }
@@ -187,19 +183,39 @@ async function enviarArchivo() {
   btn.innerHTML = '<span class="spinner"></span> Subiendo...';
 
   $('progress-wrap').style.display = 'block';
-  $('progress-bar').style.width = '30%';
-  $('progress-txt').textContent = '30%';
+  $('progress-bar').style.width = '0%';
+  $('progress-txt').textContent = '0%';
 
   try {
-    const base64 = await fileToBase64(archivoSeleccionado);
-
-    $('progress-bar').style.width = '70%';
-    $('progress-txt').textContent = '70%';
-
     const ahora      = new Date();
     const fechaTexto = ahora.toLocaleDateString('es-EC', { timeZone:'America/Guayaquil', day:'2-digit', month:'long', year:'numeric' });
     const horaTexto  = ahora.toLocaleTimeString('es-EC', { timeZone:'America/Guayaquil', hour:'2-digit', minute:'2-digit', second:'2-digit' });
 
+    // 1. Subir archivo a Firebase Storage
+    const ruta      = `entregas/${usuario.uid}_${Date.now()}_${archivoSeleccionado.name}`;
+    const storageRef = window._fb.ref(window._storage, ruta);
+    const uploadTask = window._fb.uploadBytesResumable(storageRef, archivoSeleccionado);
+
+    // 2. Escuchar progreso real de subida
+    const downloadURL = await new Promise((resolve, reject) => {
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 90);
+          $('progress-bar').style.width = pct + '%';
+          $('progress-txt').textContent = pct + '%';
+        },
+        (error) => reject(error),
+        async () => {
+          const url = await window._fb.getDownloadURL(uploadTask.snapshot.ref);
+          resolve(url);
+        }
+      );
+    });
+
+    $('progress-bar').style.width = '95%';
+    $('progress-txt').textContent = '95%';
+
+    // 3. Guardar metadatos en Firestore (sin base64, solo la URL)
     await window._fb.addDoc(window._fb.collection(db, "entregas"), {
       uid:           usuario.uid,
       nombre:        usuario.nombre,
@@ -207,7 +223,8 @@ async function enviarArchivo() {
       foto:          usuario.foto,
       nombreArchivo: archivoSeleccionado.name,
       tamanoKB:      +(archivoSeleccionado.size / 1024).toFixed(1),
-      archivoBase64: base64,
+      downloadURL,                // URL de descarga directa desde Storage
+      rutaStorage:   ruta,        // ruta interna en Storage
       mimeType:      archivoSeleccionado.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       fechaTexto,
       horaTexto,
@@ -307,24 +324,37 @@ async function cargarAdmin() {
   }
 }
 
-/* ── Descarga el archivo desde Firestore ── */
+/* ── Descarga el archivo desde Firebase Storage ── */
 window.descargarArchivo = async function(docId) {
   try {
     toast('Preparando descarga...', 'ok');
     const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const snap = await getDoc(doc(db, "entregas", docId));
     if (!snap.exists()) { toast('Archivo no encontrado', 'err'); return; }
-    const d        = snap.data();
-    const byteChars = atob(d.archivoBase64);
-    const byteArr   = new Uint8Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([byteArr], { type: d.mimeType });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = d.nombreArchivo;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast('Descarga iniciada ✓');
+    const d = snap.data();
+    // Si tiene URL de Storage, abrir directamente
+    if (d.downloadURL) {
+      const a = document.createElement('a');
+      a.href = d.downloadURL;
+      a.download = d.nombreArchivo;
+      a.target = '_blank';
+      a.click();
+      toast('Descarga iniciada ✓');
+    } else if (d.archivoBase64) {
+      // Compatibilidad con registros antiguos guardados en base64
+      const byteChars = atob(d.archivoBase64);
+      const byteArr   = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArr], { type: d.mimeType });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = d.nombreArchivo;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Descarga iniciada ✓');
+    } else {
+      toast('Archivo sin URL de descarga disponible', 'err');
+    }
   } catch(e) {
     toast('Error al descargar: ' + e.message, 'err');
   }
