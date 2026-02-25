@@ -1,11 +1,11 @@
 /* ── FIREBASE CONFIG ── */
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyCJmtr3meCbjbIi4rJ__8k02UfARgYxR-g",
-  authDomain:        "siscte-186e8.firebaseapp.com",
-  projectId:         "siscte-186e8",
-  storageBucket:     "siscte-186e8.firebasestorage.app",
-  messagingSenderId: "204472191687",
-  appId:             "1:204472191687:web:c0a884d82eb7427d7a4ce2",
+  apiKey:            "AIzaSyBF2Ivt-OGqNPpxMEUNt_f4Jd6uBpOhq2Y",
+  authDomain:        "siscte2-e38de.firebaseapp.com",
+  projectId:         "siscte2-e38de",
+  storageBucket:     "siscte2-e38de.firebasestorage.app",
+  messagingSenderId: "234056629895",
+  appId:             "1:234056629895:web:a7f6953ccc7957a7398222"
 };
 
 /* ── ADMINISTRADORES ── */
