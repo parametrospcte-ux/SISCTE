@@ -204,70 +204,57 @@ async function obtenerOCrearCarpeta(token, nombre) {
 }
 
 function subirArchivoConProgreso(token, file, carpetaId, onProgress) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // PASO 1: Iniciar sesión de subida resumable
-      const initRes = await fetch(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'X-Upload-Content-Type': file.type || 'application/octet-stream',
-            'X-Upload-Content-Length': file.size
-          },
-          body: JSON.stringify({ name: file.name, parents: [carpetaId] })
-        }
-      );
+  return new Promise((resolve, reject) => {
 
-      if (!initRes.ok) {
-        const err = await initRes.text();
-        throw new Error(`Error iniciando subida: ${initRes.status} — ${err}`);
+    // Multipart con Blob binario — sin base64, sin CORS issues
+    const metadata = JSON.stringify({ name: file.name, parents: [carpetaId] });
+    const boundary = 'siscte_mpbound_' + Date.now();
+
+    // Construir el cuerpo multipart como Blob (binario puro)
+    const metaPart = new Blob(
+      [`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${file.type||'application/octet-stream'}\r\n\r\n`],
+      { type: 'text/plain' }
+    );
+    const closePart = new Blob([`\r\n--${boundary}--`], { type: 'text/plain' });
+    const body = new Blob([metaPart, file, closePart]);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST',
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id');
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', `multipart/related; boundary=${boundary}`);
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) {
+        const pct = Math.round(10 + (ev.loaded / ev.total) * 82);
+        const mb  = (ev.loaded / (1024 * 1024)).toFixed(1);
+        const tot = (ev.total  / (1024 * 1024)).toFixed(1);
+        onProgress(pct, `Subiendo a Google Drive: ${mb} MB de ${tot} MB...`);
       }
+    };
 
-      // La URL de subida viene en el header Location
-      const uploadUrl = initRes.headers.get('Location');
-      if (!uploadUrl) throw new Error('No se obtuvo URL de subida resumable');
-
-      // PASO 2: Subir el binario directamente con XHR para tener progreso
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl);
-      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-
-      xhr.upload.onprogress = (ev) => {
-        if (ev.lengthComputable && onProgress) {
-          const pct = Math.round(10 + (ev.loaded / ev.total) * 82);
-          const mb  = (ev.loaded / (1024 * 1024)).toFixed(1);
-          const tot = (ev.total  / (1024 * 1024)).toFixed(1);
-          onProgress(pct, `Subiendo a Google Drive: ${mb} MB de ${tot} MB...`);
-        }
-      };
-
-      xhr.onload = async () => {
-        if (xhr.status === 200 || xhr.status === 201) {
-          const result = JSON.parse(xhr.responseText);
-          // Hacer el archivo accesible a cualquiera con el link
+    xhr.onload = async () => {
+      if (xhr.status === 200 || xhr.status === 201) {
+        const result = JSON.parse(xhr.responseText);
+        // Dar acceso de lectura a cualquiera con el link
+        try {
           await fetch(`https://www.googleapis.com/drive/v3/files/${result.id}/permissions`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ role: 'reader', type: 'anyone' })
           });
-          resolve({
-            fileId:    result.id,
-            driveLink: `https://drive.google.com/uc?export=download&id=${result.id}`,
-            driveVista:`https://drive.google.com/file/d/${result.id}/view`
-          });
-        } else {
-          reject(new Error(`Error al subir: ${xhr.status} — ${xhr.responseText}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error('Error de red al subir a Google Drive'));
-
-      // Enviar el File directamente (binario puro, sin base64)
-      xhr.send(file);
-
-    } catch(e) { reject(e); }
+        } catch(e) { console.warn('No se pudo hacer público:', e); }
+        resolve({
+          fileId:    result.id,
+          driveLink: `https://drive.google.com/uc?export=download&id=${result.id}`,
+          driveVista:`https://drive.google.com/file/d/${result.id}/view`
+        });
+      } else {
+        reject(new Error(`Error Drive ${xhr.status}: ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Error de red al subir a Google Drive'));
+    xhr.send(body);
   });
 }
 
